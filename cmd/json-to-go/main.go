@@ -2,45 +2,32 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 )
 
-// var nFlag = flag.Int("n", 1234, "help message for flag n")
-
 func main() {
-	// get the input flag value
-	inputFileFlag := flag.String("input", "", "input json file")
-	outputFileFlag := flag.String("output", "output.go", "output go file")
 
-	flag.Parse()
+	// get the input and output file flags
+	inputFileFlag, outputFileFlag := getFlags()
 
-	fmt.Println("input file:", *inputFileFlag)
-	fmt.Println("output file:", *outputFileFlag)
-
-	if *inputFileFlag == "" {
-		fmt.Println("input file is required")
-		os.Exit(1)
-	}
-
-	if *outputFileFlag == "" {
-		fmt.Println("output file is required")
-		os.Exit(1)
-	}
-
-	if !checkFileExists(*inputFileFlag) {
+	if !checkFileExists(inputFileFlag) {
 		fmt.Println("input file does not exist")
 		os.Exit(1)
 	}
 
-	if checkFileExists(*outputFileFlag) {
-		fmt.Println("output file already exists")
-		os.Exit(1)
+	if checkFileExists(outputFileFlag) {
+		// remove the file if it already exists
+		err := os.Remove(outputFileFlag)
+		if err != nil {
+			fmt.Println("error removing existing output file")
+			os.Exit(1)
+		}
 	}
 
 	// read the input file
-	input, err := os.ReadFile(*inputFileFlag)
+	input, err := os.ReadFile(inputFileFlag)
 	if err != nil {
 		fmt.Println("error reading input file")
 		os.Exit(1)
@@ -53,15 +40,45 @@ func main() {
 		fmt.Println("error parsing input JSON:", err)
 		os.Exit(1)
 	}
-	// generate the output file
-	fmt.Println(data)
-	// write the output file
-}
 
-func checkFileExists(path string) bool {
-	_, err := os.Stat(path)
-	if os.IsNotExist(err) {
-		return false
+	jsonToGo, err := NewJsonToGo(input)
+	if err != nil {
+		os.Exit(1)
 	}
-	return true
+
+	output := jsonToGo.Generate("")
+
+	// write the output file
+	fmt.Println("writing output file")
+	fmt.Println(output.GoCode)
+
+	output.GoCode = fmt.Sprintf("package main\n\n%s", output.GoCode)
+
+	err = os.WriteFile(outputFileFlag, []byte(output.GoCode), 0644)
+
+	if err != nil {
+		fmt.Println("error writing output file")
+		os.Exit(1)
+	}
+
+	// run goimports on the output file
+
+	// format the output file
+	fmt.Println("formatting output file")
+	cmd := exec.Command("gofmt", "-w", outputFileFlag)
+	err = cmd.Run()
+
+	if err != nil {
+		fmt.Println("error formatting output file")
+		os.Exit(1)
+	}
+
+	fmt.Println("running goimports on output file")
+	cmd = exec.Command("gopls", "imports", "-w", outputFileFlag)
+	err = cmd.Run()
+
+	if err != nil {
+		fmt.Println("error running goimports on output file")
+		os.Exit(1)
+	}
 }
